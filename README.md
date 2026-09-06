@@ -18,4 +18,4 @@ Then go back to Edit and paste the complete README content.
 
 If Preview is still blank
 
-Then I need to see the actual GitHub editor screen, because something is happening during the paste/save process.
+Then I need to see the actual GitHub editor screen, because something is happening during the paste/save process
