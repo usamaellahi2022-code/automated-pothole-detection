@@ -1,296 +1,387 @@
 """
-=============================================================
-  Pothole Detection – Streamlit Dashboard
-  BS Project – IQRA National University, Peshawar
-=============================================================
-  Run:  streamlit run dashboard.py
-=============================================================
+Automated Pothole Detection System
+Streamlit Dashboard
+
+Run:
+    streamlit run dashboard.py
 """
 
-import json
-import os
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-from PIL import Image
+from ultralytics import YOLO
 
-# ──────────────────────────────────────────────
-# CONFIG
-# ──────────────────────────────────────────────
-RESULTS_DIR = r"D:\Saqib\work\pothole_results"
+
+# -------------------------------------------------
+# CONFIGURATION
+# -------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "best.pt"
+COMPARISON_PATH = BASE_DIR / "full_model_comparison.csv"
 
 st.set_page_config(
-    page_title = "Pothole Detection System",
-    page_icon  = "🚧",
-    layout     = "wide",
+    page_title="Automated Pothole Detection System",
+    page_icon="🚧",
+    layout="wide",
 )
 
-# ──────────────────────────────────────────────
-# SIDEBAR
-# ──────────────────────────────────────────────
-st.sidebar.image(
-    "https://upload.wikimedia.org/wikipedia/en/thumb/c/c9/"
-    "Iqra_National_University_Peshawar_Logo.png/200px-"
-    "Iqra_National_University_Peshawar_Logo.png",
-    width=150,
-)
-st.sidebar.title("Pothole Detection System")
-st.sidebar.markdown("**BS Computer Science**\nIQRA National University, Peshawar")
-st.sidebar.divider()
-page = st.sidebar.radio("Navigate", ["🏠 Overview", "📊 Model Comparison",
-                                      "🔍 Detect Potholes", "📁 View Results"])
 
-# ──────────────────────────────────────────────
+# -------------------------------------------------
 # HELPERS
-# ──────────────────────────────────────────────
+# -------------------------------------------------
+
+@st.cache_resource
+def load_model():
+    """Load the trained YOLO model."""
+    if not MODEL_PATH.exists():
+        return None
+
+    try:
+        return YOLO(str(MODEL_PATH))
+    except Exception as exc:
+        st.error(f"Unable to load the YOLO model: {exc}")
+        return None
+
 
 @st.cache_data
-def load_report():
-    path = Path(RESULTS_DIR) / "report.json"
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return None
+def load_comparison_data():
+    """Load model-comparison results."""
+    if not COMPARISON_PATH.exists():
+        return None
 
-
-@st.cache_data
-def load_comparison_df():
-    path = Path(RESULTS_DIR) / "model_comparison.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return None
-
-
-def find_best_weights():
-    report = load_report()
-    if report:
-        w = Path(RESULTS_DIR) / report["best_model"] / "weights" / "best.pt"
-        if w.exists():
-            return str(w)
-    for pt in Path(RESULTS_DIR).rglob("best.pt"):
-        return str(pt)
-    return None
+    try:
+        df = pd.read_csv(COMPARISON_PATH)
+        df.columns = df.columns.astype(str).str.strip()
+        return df
+    except Exception as exc:
+        st.error(f"Unable to load model comparison data: {exc}")
+        return None
 
 
 def classify_severity(area_ratio: float) -> str:
+    """
+    Estimate pothole severity from bounding-box area ratio.
+
+    This is a simple project-level heuristic, not a road-engineering
+    severity standard.
+    """
     if area_ratio < 0.02:
         return "Low"
-    elif area_ratio < 0.06:
+    if area_ratio < 0.06:
         return "Medium"
     return "High"
 
 
-def run_detection(image: np.ndarray, weights: str, conf: float):
-    """Run YOLO on a numpy image, return annotated image + stats."""
-    from ultralytics import YOLO
-    model   = YOLO(weights)
-    results = model.predict(image, conf=conf, imgsz=640, verbose=False)
+def run_detection(image: np.ndarray, model: YOLO, conf: float):
+    """Run YOLO detection and return an annotated image plus statistics."""
+    results = model.predict(
+        image,
+        conf=conf,
+        imgsz=640,
+        verbose=False,
+    )
 
-    h, w = image.shape[:2]
-    annotated  = image.copy()
+    if not results:
+        return image.copy(), []
+
+    annotated = image.copy()
+    height, width = image.shape[:2]
+    image_area = max(height * width, 1)
     detections = []
 
     for box in results[0].boxes:
         x1, y1, x2, y2 = map(int, box.xyxy[0])
-        confidence      = float(box.conf[0])
-        area_ratio      = ((x2 - x1) * (y2 - y1)) / (w * h)
-        severity        = classify_severity(area_ratio)
-        detections.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                            "confidence": confidence, "severity": severity})
+        confidence = float(box.conf[0])
 
-        color = {"Low": (0, 200, 0), "Medium": (0, 140, 255), "High": (0, 0, 220)}[severity]
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(annotated, f"{severity} {confidence:.2f}",
-                    (x1, max(y1 - 6, 10)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+        box_area = max(0, x2 - x1) * max(0, y2 - y1)
+        area_ratio = box_area / image_area
+        severity = classify_severity(area_ratio)
+
+        detections.append(
+            {
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "confidence": confidence,
+                "severity": severity,
+            }
+        )
+
+        # OpenCV uses BGR
+        severity_color = {
+            "Low": (0, 200, 0),
+            "Medium": (0, 140, 255),
+            "High": (0, 0, 220),
+        }[severity]
+
+        cv2.rectangle(
+            annotated,
+            (x1, y1),
+            (x2, y2),
+            severity_color,
+            2,
+        )
+
+        label = f"{severity} | {confidence:.2f}"
+        text_y = max(y1 - 8, 18)
+
+        cv2.putText(
+            annotated,
+            label,
+            (x1, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            severity_color,
+            2,
+            cv2.LINE_AA,
+        )
 
     return annotated, detections
 
 
-# ──────────────────────────────────────────────
-# PAGES
-# ──────────────────────────────────────────────
+# -------------------------------------------------
+# SIDEBAR
+# -------------------------------------------------
 
-# ── Overview ──────────────────────────────────
+st.sidebar.title("🚧 Pothole Detection System")
+st.sidebar.markdown(
+    "**BS Software Engineering**  \n"
+    "Iqra National University, Peshawar"
+)
+st.sidebar.divider()
+
+page = st.sidebar.radio(
+    "Navigate",
+    [
+        "🏠 Overview",
+        "📊 Model Comparison",
+        "🔍 Detect Potholes",
+    ],
+)
+
+
+# -------------------------------------------------
+# LOAD DATA
+# -------------------------------------------------
+
+model = load_model()
+comparison_df = load_comparison_data()
+
+
+# -------------------------------------------------
+# OVERVIEW
+# -------------------------------------------------
+
 if page == "🏠 Overview":
     st.title("🚧 Automated Pothole Detection System")
-    st.markdown("### Smart City Road Maintenance | BS Project")
+    st.markdown("### Smart City Road Maintenance")
 
-    report = load_report()
-    df     = load_comparison_df()
+    st.write(
+        "An AI-based computer vision application that detects potholes "
+        "in road images using a trained YOLO object-detection model."
+    )
 
-    if report and df is not None:
-        col1, col2, col3, col4 = st.columns(4)
-        best   = report["best_model"]
-        row    = df[df["Model"] == best].iloc[0]
-
-        col1.metric("Best Model",       best)
-        col2.metric("Best mAP50",       f"{row['mAP50']:.3f}")
-        col3.metric("Best mAP50-95",    f"{row['mAP50-95']:.3f}")
-        col4.metric("Models Evaluated", len(df))
-
-        st.divider()
-        st.subheader("Models Evaluated")
-        st.dataframe(df.style.highlight_max(
-            subset=["mAP50", "mAP50-95", "Precision", "Recall"],
-            color="#c6efce"), use_container_width=True)
+    if model is None:
+        st.error(
+            "The trained model `best.pt` was not found. "
+            "Make sure it is in the same folder as `dashboard.py`."
+        )
     else:
-        st.warning("No results found. Please run `train_all_models.py` first.")
-        st.code("python train_all_models.py", language="bash")
+        st.success("Trained YOLO model loaded successfully.")
+
+    if comparison_df is not None and not comparison_df.empty:
+        required = {"Model", "mAP50", "mAP50-95", "Precision", "Recall"}
+        if required.issubset(comparison_df.columns):
+            best_row = comparison_df.loc[
+                comparison_df["mAP50-95"].idxmax()
+            ]
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Top Model", str(best_row["Model"]))
+            col2.metric("Best mAP50", f'{best_row["mAP50"]:.3f}')
+            col3.metric("Best mAP50-95", f'{best_row["mAP50-95"]:.3f}')
+            col4.metric("Models Evaluated", len(comparison_df))
+
+            st.divider()
+            st.subheader("Model Performance Summary")
+            st.dataframe(
+                comparison_df,
+                use_container_width=True,
+            )
+        else:
+            st.warning(
+                "The comparison CSV does not contain the expected metric columns."
+            )
 
 
-# ── Model Comparison ──────────────────────────
+# -------------------------------------------------
+# MODEL COMPARISON
+# -------------------------------------------------
+
 elif page == "📊 Model Comparison":
-    st.title("📊 Model Comparison")
-    df = load_comparison_df()
+    st.title("📊 YOLO Model Comparison")
 
-    if df is None:
-        st.warning("Run training first: `python train_all_models.py`")
+    if comparison_df is None or comparison_df.empty:
+        st.warning("`full_model_comparison.csv` was not found.")
         st.stop()
 
-    metric = st.selectbox("Select Metric", ["mAP50", "mAP50-95", "Precision",
-                                             "Recall", "Training_Time"])
+    available_metrics = [
+        metric
+        for metric in ["mAP50", "mAP50-95", "Precision", "Recall"]
+        if metric in comparison_df.columns
+    ]
 
-    # Bar chart
-    fig = px.bar(df.sort_values(metric, ascending=False),
-                 x="Model", y=metric,
-                 color="Model",
-                 text_auto=".3f",
-                 title=f"{metric} – All Models",
-                 template="plotly_white")
-    fig.update_layout(showlegend=False, xaxis_tickangle=-30)
+    if not available_metrics:
+        st.warning("No supported comparison metrics were found.")
+        st.stop()
+
+    metric = st.selectbox("Select Metric", available_metrics)
+
+    chart_df = comparison_df.sort_values(metric, ascending=False)
+
+    fig = px.bar(
+        chart_df,
+        x="Model",
+        y=metric,
+        text_auto=".3f",
+        title=f"{metric} — All Evaluated Models",
+    )
+    fig.update_layout(
+        xaxis_tickangle=-30,
+        showlegend=False,
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
-    # Radar chart
-    st.subheader("Multi-Metric Radar")
-    categories = ["mAP50", "mAP50-95", "Precision", "Recall"]
-    radar_fig  = go.Figure()
-    for _, row in df.iterrows():
-        vals = [row[c] for c in categories]
-        radar_fig.add_trace(go.Scatterpolar(
-            r=vals + [vals[0]], theta=categories + [categories[0]],
-            fill="toself", name=row["Model"],
-            opacity=0.6,
-        ))
-    radar_fig.update_layout(
-        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
-        title="Radar – All Metrics", template="plotly_white")
-    st.plotly_chart(radar_fig, use_container_width=True)
+    st.subheader("Comparison Table")
+    st.dataframe(
+        chart_df,
+        use_container_width=True,
+    )
 
 
-# ── Detect Potholes ───────────────────────────
+# -------------------------------------------------
+# DETECTION
+# -------------------------------------------------
+
 elif page == "🔍 Detect Potholes":
     st.title("🔍 Detect Potholes in Images")
 
-    weights = find_best_weights()
-    if weights is None:
-        st.error("No trained model found. Run `train_all_models.py` first.")
+    if model is None:
+        st.error(
+            "Model file `best.pt` was not found. "
+            "Place it in the same directory as `dashboard.py`."
+        )
         st.stop()
 
-    report  = load_report()
-    df      = load_comparison_df()
-    if df is not None:
-        all_weights = []
-        for _, row in df.iterrows():
-            w = Path(RESULTS_DIR) / row["Model"] / "weights" / "best.pt"
-            if w.exists():
-                all_weights.append((row["Model"], str(w)))
-        if all_weights:
-            choice  = st.selectbox("Model", [m for m, _ in all_weights],
-                                   index=0,
-                                   help="Auto-ranked best → worst by mAP50")
-            weights = dict(all_weights)[choice]
+    conf = st.slider(
+        "Confidence Threshold",
+        min_value=0.10,
+        max_value=0.90,
+        value=0.35,
+        step=0.05,
+    )
 
-    conf = st.slider("Confidence Threshold", 0.1, 0.9, 0.35, 0.05)
+    uploaded = st.file_uploader(
+        "Upload a road image",
+        type=["jpg", "jpeg", "png"],
+    )
 
-    uploaded = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
-    if uploaded:
-        file_bytes = np.frombuffer(uploaded.read(), np.uint8)
-        img        = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if uploaded is not None:
+        file_bytes = np.frombuffer(
+            uploaded.read(),
+            np.uint8,
+        )
+
+        image = cv2.imdecode(
+            file_bytes,
+            cv2.IMREAD_COLOR,
+        )
+
+        if image is None:
+            st.error("The uploaded file could not be read as an image.")
+            st.stop()
+
+        annotated, detections = run_detection(
+            image,
+            model,
+            conf,
+        )
 
         col1, col2 = st.columns(2)
-        col1.subheader("Original")
-        col1.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), use_column_width=True)
 
-        with st.spinner("Detecting potholes…"):
-            annotated, detections = run_detection(img, weights, conf)
+        with col1:
+            st.subheader("Original Image")
+            st.image(
+                cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
+                use_container_width=True,
+            )
 
-        col2.subheader(f"Detected ({len(detections)} potholes)")
-        col2.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_column_width=True)
+        with col2:
+            st.subheader(
+                f"Detection Result ({len(detections)} pothole(s))"
+            )
+            st.image(
+                cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                use_container_width=True,
+            )
 
         if detections:
             st.divider()
             st.subheader("Detection Details")
-            det_df = pd.DataFrame(detections)[["severity", "confidence"]]
-            counts = det_df["severity"].value_counts().reset_index()
-            counts.columns = ["Severity", "Count"]
 
-            c1, c2 = st.columns(2)
-            fig_pie = px.pie(counts, names="Severity", values="Count",
-                             color="Severity",
-                             color_discrete_map={"Low":"green","Medium":"orange","High":"red"},
-                             title="Severity Distribution")
-            c1.plotly_chart(fig_pie, use_container_width=True)
+            details_df = pd.DataFrame(detections)[
+                ["severity", "confidence"]
+            ].copy()
 
-            fig_conf = px.histogram(det_df, x="confidence", nbins=10,
-                                    title="Confidence Distribution",
-                                    template="plotly_white")
-            c2.plotly_chart(fig_conf, use_container_width=True)
+            details_df.columns = ["Severity", "Confidence"]
 
-            st.dataframe(det_df.rename(columns={"severity": "Severity",
-                                                  "confidence": "Confidence"}),
-                         use_container_width=True)
+            st.dataframe(
+                details_df,
+                use_container_width=True,
+            )
+
+            severity_counts = (
+                details_df["Severity"]
+                .value_counts()
+                .reset_index()
+            )
+            severity_counts.columns = ["Severity", "Count"]
+
+            col3, col4 = st.columns(2)
+
+            with col3:
+                pie_fig = px.pie(
+                    severity_counts,
+                    names="Severity",
+                    values="Count",
+                    title="Severity Distribution",
+                )
+                st.plotly_chart(
+                    pie_fig,
+                    use_container_width=True,
+                )
+
+            with col4:
+                conf_fig = px.histogram(
+                    details_df,
+                    x="Confidence",
+                    nbins=10,
+                    title="Confidence Distribution",
+                )
+                st.plotly_chart(
+                    conf_fig,
+                    use_container_width=True,
+                )
         else:
-            st.success("✅ No potholes detected above the confidence threshold.")
-
-
-# ── View Results ──────────────────────────────
-elif page == "📁 View Results":
-    st.title("📁 Saved Training Results")
-
-    result_dir = Path(RESULTS_DIR)
-    if not result_dir.exists():
-        st.warning(f"Results directory not found: {RESULTS_DIR}")
-        st.stop()
-
-    model_dirs = [d for d in result_dir.iterdir()
-                  if d.is_dir() and (d / "results.csv").exists()]
-
-    if not model_dirs:
-        st.info("No trained models found yet.")
-        st.stop()
-
-    selected = st.selectbox("Select Model", [d.name for d in model_dirs])
-    model_d  = result_dir / selected
-
-    tab1, tab2 = st.tabs(["📈 Training Curves", "🖼️ Sample Predictions"])
-
-    with tab1:
-        csv_path = model_d / "results.csv"
-        if csv_path.exists():
-            df_r = pd.read_csv(csv_path)
-            df_r.columns = df_r.columns.str.strip()
-
-            map_col = next((c for c in df_r.columns
-                            if "mAP" in c and "0.5" in c and "95" not in c), None)
-            if map_col:
-                fig = px.line(df_r, x=df_r.index, y=map_col,
-                              title=f"{selected} – mAP50 Training Curve",
-                              template="plotly_white",
-                              labels={"x": "Epoch", map_col: "mAP50"})
-                st.plotly_chart(fig, use_container_width=True)
-
-    with tab2:
-        pred_dir = model_d / "val_predictions"
-        images   = list(pred_dir.glob("*.jpg"))[:6] if pred_dir.exists() else []
-        if images:
-            cols = st.columns(3)
-            for i, img_path in enumerate(images):
-                cols[i % 3].image(str(img_path), use_column_width=True)
-        else:
-            st.info("No prediction images saved for this model.")
+            st.success(
+                "No potholes were detected above the selected confidence threshold."
+            )
+    else:
+        st.info("Upload a road image to start pothole detection.")
