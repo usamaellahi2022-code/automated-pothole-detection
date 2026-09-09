@@ -57,59 +57,75 @@ The system can:
 
 ## 📁 Project Structure
 
+```text
 automated-pothole-detection/
-- README.md
-- .gitignore
-- requirements.txt
-- data.yaml
-- train.py
-- train_all_models.py
-- detect.py
-- dashboard.py
-- best.pt
-- full_model_comparison.csv
-- different yolo model results.png
-- 1.jpg
-- 2.jpg
-- 3.jpg
+├── README.md
+├── .gitignore
+├── requirements.txt
+├── data.yaml
+├── train.py
+├── train_all_models.py
+├── detect.py
+├── dashboard.py
+├── best.pt
+├── full_model_comparison.csv
+├── different yolo model results.png
+├── 1.jpg
+├── 2.jpg
+└── 3.jpg
+```
 
 ## ⚙️ Installation
 
 ### 1. Clone the repository
+
 ```bash
 git clone https://github.com/usamaellahi2022-code/automated-pothole-detection.git
 ```
+
 ### 2. Open the project directory
+
 ```bash
 cd automated-pothole-detection
 ```
+
 ### 3. Create a virtual environment
+
 ```bash
 python -m venv venv
 ```
-### 4. Activate the environment
+
+### 4. Activate the virtual environment
 
 **Windows:**
+
 ```bash
 venv\Scripts\activate
 ```
+
 **Linux / macOS:**
+
 ```bash
 source venv/bin/activate
 ```
+
 ### 5. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
+
 ## 🗂️ Dataset Configuration
 
-The YOLO dataset configuration is provided in data.yaml.
+The YOLO dataset configuration is provided in `data.yaml`.
 
 The project uses one object-detection class:
 
+```text
 pothole
+```
 
-The dataset itself is not included in this repository. Configure the dataset paths in data.yaml before training.
+The dataset itself is not included in this repository. Configure the dataset paths in `data.yaml` before training.
 
 ## 🏋️ Model Training
 
@@ -117,45 +133,47 @@ Train the main YOLO model:
 
 ```bash
 python train.py
-Train and multiple YOLO models:
+```
+
+Train and compare multiple YOLO models:
+
+```bash
 python train_all_models.py
+```
 
-#### Pothole Detection
-
-```markdown
 ## 🔍 Pothole Detection
 
 Run the detection script:
 
 ```bash
 python detect.py
-The system detects potholes and produces visual result with bounding boxes and confidence scores.
- 
-#### Streamlit Dashboard
+```
 
-```markdown
+The system detects potholes and produces visual results with bounding boxes and confidence scores.
+
 ## 🌐 Streamlit Dashboard
 
 Run the interactive dashboard:
 
 ```bash
 python -m streamlit run dashboard.py
+```
 
 The dashboard supports:
 
-Model selection
-Confidence threshold adjustment
-Image upload
-Pothole detection
-Detection count
-Annotated result visualization
-Downloadable detected images
+- Model selection
+- Confidence threshold adjustment
+- Image upload
+- Pothole detection
+- Detection count
+- Annotated result visualization
+- Downloadable detected images
 
 ## 📊 Model Comparison
 
 The repository contains model comparison results in:
 
-full_model_comparison.csv
+`full_model_comparison.csv`
 
 The comparison includes:
 
@@ -181,9 +199,9 @@ The comparison includes:
 
 Sample detection results are included in:
 
-- 1.jpg
-- 2.jpg
-- 3.jpg
+- `1.jpg`
+- `2.jpg`
+- `3.jpg`
 
 ## 🚀 Future Improvements
 
@@ -200,11 +218,11 @@ Sample detection results are included in:
 
 This project was developed as a Bachelor-level Software Engineering project at:
 
-Iqra National University, Peshawar
+**Iqra National University, Peshawar**
 
 ## 👨‍💻 Author
 
-Usama Ellahi
+**Usama Ellahi**
 
 Software Engineering Graduate
 
