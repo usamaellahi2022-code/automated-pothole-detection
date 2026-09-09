@@ -115,35 +115,41 @@ The dataset itself is not included in this repository. Configure the dataset pat
 
 Train the main YOLO model:
 
+```bash
 python train.py
-
-Train and compare multiple YOLO models:
-
+Train and multiple YOLO models:
 python train_all_models.py
 
+#### Pothole Detection
+
+```markdown
 ## 🔍 Pothole Detection
 
 Run the detection script:
 
+```bash
 python detect.py
+The system detects potholes and produces visual result with bounding boxes and confidence scores.
+ 
+#### Streamlit Dashboard
 
-The system detects potholes and produces visual results with bounding boxes and confidence scores.
-
+```markdown
 ## 🌐 Streamlit Dashboard
 
 Run the interactive dashboard:
 
+```bash
 python -m streamlit run dashboard.py
 
 The dashboard supports:
 
-- Model selection
-- Confidence threshold adjustment
-- Image upload
-- Pothole detection
-- Detection count
-- Annotated result visualization
-- Downloadable detected images
+Model selection
+Confidence threshold adjustment
+Image upload
+Pothole detection
+Detection count
+Annotated result visualization
+Downloadable detected images
 
 ## 📊 Model Comparison
 
